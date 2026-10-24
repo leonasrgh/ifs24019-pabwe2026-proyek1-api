@@ -26,7 +26,10 @@ async function makeRide(h, over = {}) {
 }
 
 beforeEach(() => {
-  app = createApp(openDb(":memory:"), { jwtSecret: SECRET });
+  app = createApp(openDb(":memory:"), {
+    jwtSecret: SECRET,
+    delcomLogin: async () => null,
+  });
 });
 
 describe("infra", () => {
