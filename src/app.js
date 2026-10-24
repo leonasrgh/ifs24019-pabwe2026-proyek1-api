@@ -6,7 +6,7 @@ import { userRoutes } from "./routes/users.js";
 import { rideRoutes } from "./routes/rides.js";
 import { bookingRoutes } from "./routes/bookings.js";
 
-export function createApp(db, { jwtSecret, corsOrigin = "*" }) {
+export function createApp(db, { jwtSecret, corsOrigin = "*", delcomLogin }) {
   const app = express();
   app.use(cors({ origin: corsOrigin === "*" ? true : corsOrigin.split(",") }));
   app.use(express.json());
@@ -14,7 +14,7 @@ export function createApp(db, { jwtSecret, corsOrigin = "*" }) {
   app.get("/api/health", (_req, res) => res.json({ success: true, message: "NebengKampus API OK" }));
 
   const guard = authRequired(jwtSecret);
-  app.use("/api/auth", authRoutes(db, jwtSecret));
+  app.use("/api/auth", authRoutes(db, jwtSecret, delcomLogin));
   app.use("/api/users", guard, userRoutes(db));
   app.use("/api/rides", guard, rideRoutes(db));
   app.use("/api/bookings", guard, bookingRoutes(db));

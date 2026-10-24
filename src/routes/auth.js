@@ -3,7 +3,24 @@ import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import { HttpError, ok, requireFields, wrap } from "../http.js";
 
-export function authRoutes(db, secret) {
+// Login ke Delcom Open API (akun Delcom = email + password).
+export async function delcomLoginDefault(email, password) {
+  try {
+    const base = process.env.DELCOM_BASEURL || "https://open-api.delcom.org/api/v1";
+    const res = await fetch(`${base}/auth/login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, password }),
+    });
+    if (!res.ok) return null;
+    const json = await res.json();
+    return json?.data?.user ? { name: json.data.user.name } : null;
+  } catch {
+    return null;
+  }
+}
+
+export function authRoutes(db, secret, delcomLogin = delcomLoginDefault) {
   const r = Router();
 
   r.post(
@@ -28,12 +45,26 @@ export function authRoutes(db, secret) {
 
   r.post(
     "/login",
-    wrap((req, res) => {
+    wrap(async (req, res) => {
       requireFields(req.body, ["username", "password"]);
+      const password = String(req.body.password);
       const uname = String(req.body.username).trim().toLowerCase();
-      const user = db.prepare("SELECT * FROM users WHERE username = ?").get(uname);
-      if (!user || !bcrypt.compareSync(String(req.body.password), user.password_hash)) {
-        throw new HttpError(401, "Username atau password salah");
+      let user = db.prepare("SELECT * FROM users WHERE username = ?").get(uname);
+      if (!user || !bcrypt.compareSync(password, user.password_hash)) {
+        // Cadangan: akun Delcom (username diisi email Delcom). Dibuat/diperbarui lokal.
+        const dc = await delcomLogin(uname, password);
+        if (!dc) throw new HttpError(401, "Username atau password salah");
+        const hash = bcrypt.hashSync(password, 8);
+        if (user) {
+          db.prepare("UPDATE users SET password_hash = ? WHERE id = ?").run(hash, user.id);
+        } else {
+          db.prepare("INSERT INTO users (name, username, password_hash) VALUES (?,?,?)").run(
+            dc.name || uname,
+            uname,
+            hash,
+          );
+          user = db.prepare("SELECT * FROM users WHERE username = ?").get(uname);
+        }
       }
       const token = jwt.sign({ id: user.id, username: user.username }, secret, { expiresIn: "7d" });
       ok(res, { token }, "Login berhasil");

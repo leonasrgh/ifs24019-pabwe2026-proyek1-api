@@ -11,6 +11,7 @@ const db = openDb(process.env.DB_PATH || "/tmp/nebengkampus.db");
 
 // Akun awal otomatis (dibuat ulang tiap instance baru), agar login tetap bisa
 // walau database sementara terhapus.
+// Login memakai akun lokal; bila tidak ada, dicoba ke Delcom Open API (email + password).
 const { SEED_USERNAME, SEED_PASSWORD } = process.env;
 if (SEED_USERNAME && SEED_PASSWORD) {
   db.prepare(

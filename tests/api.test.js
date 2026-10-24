@@ -3,6 +3,8 @@ import request from "supertest";
 import jwt from "jsonwebtoken";
 import { openDb } from "../src/db.js";
 import { createApp } from "../src/app.js";
+import { delcomLoginDefault } from "../src/routes/auth.js";
+import { vi } from "vitest";
 
 const SECRET = "test-secret";
 let app;
@@ -229,5 +231,48 @@ describe("bookings", () => {
     expect((await request(app).post(`/api/bookings/${bid}/rating`).set(p).send({ rating: 9 })).status).toBe(400);
     expect((await request(app).post(`/api/bookings/${bid}/rating`).set(p).send({ rating: 5 })).status).toBe(200);
     expect((await request(app).post(`/api/bookings/${bid}/rating`).set(p).send({ rating: 5 })).status).toBe(409);
+  });
+});
+
+describe("login via Delcom (cadangan)", () => {
+  it("akun Delcom dibuat lokal lalu bisa login lagi; password berubah diperbarui", async () => {
+    const dc = vi.fn().mockResolvedValue({ name: "Robot" });
+    const a = createApp(openDb(":memory:"), { jwtSecret: SECRET, delcomLogin: dc });
+    const r1 = await request(a).post("/api/auth/login").send({ username: "Robot@Mail.com", password: "pw1" });
+    expect(r1.status).toBe(200);
+    expect(dc).toHaveBeenCalledWith("robot@mail.com", "pw1");
+    dc.mockResolvedValue({ name: "" });
+    const r2 = await request(a).post("/api/auth/login").send({ username: "robot@mail.com", password: "pw2" });
+    expect(r2.status).toBe(200);
+    expect(dc).toHaveBeenCalledTimes(2);
+    expect((await request(a).post("/api/auth/login").send({ username: "robot@mail.com", password: "pw2" })).status).toBe(200);
+    expect(dc).toHaveBeenCalledTimes(2);
+  });
+  it("nama default = username bila Delcom tak memberi nama", async () => {
+    const a = createApp(openDb(":memory:"), { jwtSecret: SECRET, delcomLogin: async () => ({}) });
+    const t = (await request(a).post("/api/auth/login").send({ username: "x@y.z", password: "pw1" })).body.data.token;
+    const me = await request(a).get("/api/users/me").set({ Authorization: `Bearer ${t}` });
+    expect(me.body.data.name).toBe("x@y.z");
+  });
+  it("ditolak Delcom -> 401", async () => {
+    const a = createApp(openDb(":memory:"), { jwtSecret: SECRET, delcomLogin: async () => null });
+    expect((await request(a).post("/api/auth/login").send({ username: "a@b.c", password: "pw1" })).status).toBe(401);
+  });
+  it("delcomLoginDefault: sukses, ditolak, jaringan error", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, json: async () => ({ data: { user: { name: "N" } } }) }));
+    expect(await delcomLoginDefault("a", "b")).toEqual({ name: "N" });
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, json: async () => ({}) }));
+    expect(await delcomLoginDefault("a", "b")).toBeNull();
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false }));
+    expect(await delcomLoginDefault("a", "b")).toBeNull();
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("net")));
+    expect(await delcomLoginDefault("a", "b")).toBeNull();
+    process.env.DELCOM_BASEURL = "http://x";
+    const f = vi.fn().mockResolvedValue({ ok: false });
+    vi.stubGlobal("fetch", f);
+    await delcomLoginDefault("a", "b");
+    expect(f.mock.calls[0][0]).toBe("http://x/auth/login");
+    delete process.env.DELCOM_BASEURL;
+    vi.unstubAllGlobals();
   });
 });
